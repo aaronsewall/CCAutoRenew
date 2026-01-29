@@ -285,9 +285,63 @@ This mode is useful when:
 
 The daemon adjusts its checking frequency based on time remaining:
 - **Normal**: Every 10 minutes
-- **< 30 minutes**: Every 2 minutes  
+- **< 30 minutes**: Every 2 minutes
 - **< 5 minutes**: Every 30 seconds
 - **After renewal**: 5-minute cooldown
+
+## Advanced Features
+
+### Weekday Scheduling
+
+Limit daemon to specific days of the week:
+
+```bash
+# Run Monday through Friday only
+./claude-daemon-manager.sh start --at 07:00 --stop 22:00 --weekdays "1-5"
+
+# Run specific days (1=Monday, 7=Sunday)
+./claude-daemon-manager.sh start --at 07:00 --stop 17:00 --weekdays "1,2,3,4,5"
+```
+
+### Cross-Midnight Windows
+
+Schedule windows that span midnight:
+
+```bash
+# Run from 10 PM to 2 AM (next day)
+./claude-daemon-manager.sh start --at 22:00 --stop 02:00
+```
+
+### Sleep/Wake Integration (Linux)
+
+For laptop users, the daemon can automatically recalculate windows when your system wakes from sleep:
+
+```bash
+# One-time setup (requires systemd)
+./setup-systemd.sh
+
+# Verify installation
+systemctl --user status claude-auto-renew-wake.service
+```
+
+This ensures:
+- Missed renewal windows are caught up immediately after wake
+- No duplicate renewals after wake
+- Proper recalculation of next renewal time
+
+### Retry Mechanism
+
+The daemon automatically retries failed Claude sessions:
+- Up to 3 attempts with exponential backoff (5s, 15s, 30s)
+- Network errors trigger retry
+- Weekly limit reached = daemon sleeps until Monday
+
+### Error Detection
+
+The daemon detects and handles specific error conditions:
+- **Weekly limit**: Automatically sleeps until next weekly reset
+- **Network errors**: Retries with exponential backoff
+- **Claude not installed**: Clear error message and exit
 
 ## 🧪 Testing
 

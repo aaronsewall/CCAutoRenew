@@ -53,6 +53,10 @@ start_daemon() {
                 CUSTOM_MESSAGE="$3"
                 shift 2
                 ;;
+            --weekdays)
+                WEEKDAYS="$3"
+                shift 2
+                ;;
             *)
                 shift
                 ;;
@@ -99,10 +103,11 @@ start_daemon() {
             return 1
         fi
         
-        # Validate that stop time is after start time
+        # Handle cross-midnight windows (e.g., --at 22:00 --stop 02:00)
         if [ -n "$START_EPOCH" ] && [ "$STOP_EPOCH" -le "$START_EPOCH" ]; then
-            print_error "Stop time must be after start time"
-            return 1
+            # Stop time is next day - add 24 hours to stop epoch
+            STOP_EPOCH=$((STOP_EPOCH + 86400))
+            print_status "Cross-midnight window detected: stop time set to next day"
         fi
         
         # Store stop time
@@ -121,6 +126,21 @@ start_daemon() {
     else
         # Remove any existing custom message (use default messages)
         rm -f "$MESSAGE_FILE" 2>/dev/null
+    fi
+
+    # Process weekdays configuration
+    WEEKDAYS_FILE="$HOME/.claude-auto-renew-weekdays"
+
+    if [ -n "$WEEKDAYS" ]; then
+        # Validate format: "1-5" or "1,2,3,4,5" or "1-7"
+        if [[ ! "$WEEKDAYS" =~ ^[0-9](-[0-9])?(,[0-9](-[0-9])?)*$ ]]; then
+            print_error "Invalid weekdays format. Use '1-5' or '1,2,3,4,5'"
+            return 1
+        fi
+        echo "$WEEKDAYS" > "$WEEKDAYS_FILE"
+        print_status "Daemon will run on weekdays: $WEEKDAYS"
+    else
+        rm -f "$WEEKDAYS_FILE" 2>/dev/null
     fi
     
     if [ -f "$PID_FILE" ]; then
@@ -603,23 +623,39 @@ case "$1" in
         echo "  start                      - Start the daemon"
         echo "  start --at TIME            - Start daemon but begin monitoring at specified time"
         echo "  start --at TIME --stop END - Start monitoring at TIME, stop at END"
+        echo "  start --weekdays DAYS      - Only run on specified weekdays (1=Mon, 7=Sun)"
         echo "  start --disableccusage     - Start daemon without ccusage (clock-based only)"
         echo "  start --message \"text\"     - Use custom message for renewal instead of random greetings"
-        echo "                               Examples: --at '09:00' --stop '17:00'"
-        echo "                                        --at '2025-01-28 09:00' --stop '2025-01-28 17:00'"
-        echo "                                        --at '09:00' --stop '17:00' --disableccusage"
-        echo "                                        --message 'continue working on the React feature'"
         echo "  stop                       - Stop the daemon"
         echo "  restart                    - Restart the daemon"
         echo "  status                     - Show daemon status"
         echo "  dash                       - Live dashboard with updates every minute"
         echo "  logs                       - Show recent logs (use 'logs -f' to follow)"
         echo ""
+        echo "Examples:"
+        echo "  $0 start --at 07:00 --stop 22:00 --weekdays '1-5'"
+        echo "      # Run Mon-Fri 7am-10pm (3 sessions/day)"
+        echo ""
+        echo "  $0 start --at 22:00 --stop 02:00"
+        echo "      # Cross-midnight window (10pm-2am next day)"
+        echo ""
+        echo "  $0 start --at 09:00 --stop 17:00 --message 'continue my task'"
+        echo "      # Work hours with custom renewal message"
+        echo ""
+        echo "Weekday format:"
+        echo "  '1-5'       - Monday through Friday"
+        echo "  '1,2,3,4,5' - Same as above (comma-separated)"
+        echo "  '1-7'       - Every day"
+        echo ""
+        echo "Sleep/Wake Integration (Linux only):"
+        echo "  Run ./setup-systemd.sh to enable automatic catch-up after laptop sleep"
+        echo ""
         echo "The daemon will:"
         echo "  - Monitor your Claude usage blocks within scheduled hours"
         echo "  - Automatically start a session when renewal is needed"
-        echo "  - Stop monitoring at specified stop time"
-        echo "  - Resume monitoring the next day at start time"
-        echo "  - Prevent gaps in your 5-hour usage windows"
+        echo "  - Skip weekends/non-configured days automatically"
+        echo "  - Retry failed renewals with exponential backoff (5s, 15s, 30s)"
+        echo "  - Detect weekly limits and pause until Monday"
+        echo "  - Catch up on missed renewals after laptop wake (if systemd enabled)"
         ;;
 esac
